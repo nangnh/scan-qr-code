@@ -16,11 +16,11 @@
   Script (đã kiểm chứng qua tài liệu cộng đồng, không phải giả định — xem
   tasks/backlog-20260822/DEV-19-fix-qr-camera-iframe-sandbox.md).
 
-  File này là 1 trang HTML ĐỘC LẬP, tự chứa (inline mọi CSS/JS, chỉ tải thư viện QuaggaJS qua CDN), 
-  KHÔNG chứa business logic, KHÔNG gọi Apps Script API, KHÔNG đụng Google Sheets — chỉ làm đúng 1 việc: 
-  mở camera, quét mã vạch 1D/QR, gửi kết quả về app chính qua `window.opener.postMessage(...)` rồi tự đóng. 
+  File này là 1 trang HTML ĐỘC LẬP, tự chứa (inline mọi CSS/JS, chỉ tải QuaggaJS và jsQR qua CDN),
+  KHÔNG chứa business logic, KHÔNG gọi Apps Script API, KHÔNG đụng Google Sheets — chỉ làm đúng 1 việc:
+  mở camera, quét mã vạch 1D/QR, gửi kết quả về app chính qua `window.opener.postMessage(...)` rồi tự đóng.
   App chính mở file này bằng `window.open(...)` (tab thật, KHÔNG phải iframe) từ views/qr-modals.html.
-  
+
   CÁCH DEPLOY (chọn 1, đều miễn phí, không cần server riêng — chỉ cần HTTPS + origin thật):
   1. GitHub Pages: đẩy đúng file này lên 1 repo (nhánh nào cũng được) → Settings → Pages → bật cho nhánh đó
      → URL dạng https://<tai-khoan>.github.io/<repo>/scanner.html (hoặc đường dẫn tương ứng nơi đặt file).
@@ -43,8 +43,9 @@
   cụ thể (không phải '*') lấy từ query param ?origin=... do app chính truyền vào khi mở tab, để tránh gửi
   nhầm dữ liệu cho 1 trang lạ nếu tab bị điều hướng.
 -->
-  <!-- Tải thư viện QuaggaJS chuyên quét mã vạch 1D qua CDN -->
+  <!-- Quét barcode 1D và QR ngay trên trình duyệt, không gửi ảnh ra ngoài -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -190,6 +191,7 @@
     var params = new URLSearchParams(window.location.search);
     var targetOrigin = params.get('origin');
     var sent = false;
+    var qrScanRaf = null;
 
     function showMsg(text, type) {
       var el = document.getElementById('msg');
@@ -208,7 +210,7 @@
       if (window.opener) {
         window.opener.postMessage({ type: 'qr-scanned', code: code }, targetOrigin);
         showMsg('Đã gửi mã "' + code + '" về ứng dụng. Có thể đóng tab này.', 'ok');
-        Quagga.stop();
+        stopScanner();
         setTimeout(function () { window.close(); }, 900);
       } else {
         showMsg('Không tìm thấy tab đã mở trang này (window.opener trống).', 'err');
@@ -220,6 +222,33 @@
       var v = document.getElementById('manualInput').value.trim();
       if (!v) return;
       sendResult(v);
+    }
+
+    function stopScanner() {
+      if (qrScanRaf) {
+        cancelAnimationFrame(qrScanRaf);
+        qrScanRaf = null;
+      }
+      try { Quagga.stop(); } catch (e) { }
+    }
+
+    function scanQrFrame() {
+      if (sent) return;
+      var video = document.querySelector('#interactive video');
+      if (video && video.readyState === video.HAVE_ENOUGH_DATA && window.jsQR) {
+        var canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        var context = canvas.getContext('2d', { willReadFrequently: true });
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        var result = jsQR(context.getImageData(0, 0, canvas.width, canvas.height).data,
+          canvas.width, canvas.height);
+        if (result && result.data) {
+          sendResult(result.data);
+          return;
+        }
+      }
+      qrScanRaf = requestAnimationFrame(scanQrFrame);
     }
 
     function startScanner() {
@@ -252,6 +281,7 @@
           return;
         }
         Quagga.start();
+        scanQrFrame();
       });
 
       Quagga.onDetected(function (result) {
@@ -263,7 +293,7 @@
     }
 
     window.addEventListener('beforeunload', function () {
-      try { Quagga.stop(); } catch (e) { }
+      stopScanner();
     });
 
     startScanner();
