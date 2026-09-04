@@ -46,6 +46,7 @@
   <!-- Quét barcode 1D và QR ngay trên trình duyệt, không gửi ảnh ra ngoài -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -192,6 +193,7 @@
     var targetOrigin = params.get('origin');
     var sent = false;
     var qrScanRaf = null;
+    var zxingControls = null;
 
     function showMsg(text, type) {
       var el = document.getElementById('msg');
@@ -230,6 +232,10 @@
         qrScanRaf = null;
       }
       try { Quagga.stop(); } catch (e) { }
+      if (zxingControls) {
+        zxingControls.stop();
+        zxingControls = null;
+      }
     }
 
     function scanQrFrame() {
@@ -249,6 +255,36 @@
         }
       }
       qrScanRaf = requestAnimationFrame(scanQrFrame);
+    }
+
+    function startZxingScanner(video) {
+      if (!window.ZXing || !video) return;
+      var hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.UPC_EAN_EXTENSION,
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.CODE_93,
+        ZXing.BarcodeFormat.ITF,
+        ZXing.BarcodeFormat.CODABAR,
+        ZXing.BarcodeFormat.RSS_14,
+        ZXing.BarcodeFormat.RSS_EXPANDED
+      ]);
+      var reader = new ZXing.BrowserMultiFormatReader(hints, 300);
+      try {
+        zxingControls = reader.decodeFromVideoElementContinuously(video, function (result, error) {
+          if (result && result.text && !sent) sendResult(result.text);
+          if (error && !(error instanceof ZXing.NotFoundException)) {
+            console.warn('ZXing decode error:', error);
+          }
+        });
+      } catch (error) {
+        console.warn('ZXing không khởi động được, tiếp tục dùng Quagga:', error);
+      }
     }
 
     function startScanner() {
@@ -284,11 +320,18 @@
         decoder: {
           readers: [
             "ean_reader",     // Hỗ trợ mã vạch EAN-13 như ảnh của bạn
+            "ean_13_reader",
             "ean_8_reader",
             "code_128_reader",
             "code_39_reader",
+            "code_93_reader",
+            "i2of5_reader",
+            "2of5_reader",
+            "codabar_reader",
             "upc_reader",
-            "upc_e_reader"
+            "upc_e_reader",
+            "rss_14_reader",
+            "rss_expanded_reader"
           ]
         },
       }, function (err) {
@@ -297,7 +340,9 @@
           return;
         }
         Quagga.start();
+        var video = document.querySelector('#interactive video');
         scanQrFrame();
+        startZxingScanner(video);
       });
 
       Quagga.onDetected(function (result) {
