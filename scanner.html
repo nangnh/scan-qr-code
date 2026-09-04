@@ -262,9 +262,25 @@
           type: "LiveStream",
           target: document.querySelector('#interactive'),
           constraints: {
-            facingMode: "environment" // Ưu tiên camera sau
+            facingMode: "environment", // Ưu tiên camera sau
+            width: { min: 640, ideal: 1280 },
+            height: { min: 480, ideal: 720 },
+            focusMode: "continuous"
           },
+          area: {
+            top: "15%",
+            right: "5%",
+            left: "5%",
+            bottom: "15%"
+          },
+          willReadFrequently: true,
         },
+        locate: true,
+        locator: {
+          patchSize: "large",
+          halfSample: false
+        },
+        frequency: 10,
         decoder: {
           readers: [
             "ean_reader",     // Hỗ trợ mã vạch EAN-13 như ảnh của bạn
