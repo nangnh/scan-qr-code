@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Quét mã QR — Quản lý Vật tư</title>
-<!--
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quét mã QR — Quản lý Vật tư</title>
+  <!--
   docs/external-qr-scanner/scanner.html — TRANG QUÉT CAMERA HOST NGOÀI APPS SCRIPT.
 
   VÌ SAO CẦN FILE NÀY (đọc trước khi deploy):
@@ -15,13 +16,11 @@
   Script (đã kiểm chứng qua tài liệu cộng đồng, không phải giả định — xem
   tasks/backlog-20260822/DEV-19-fix-qr-camera-iframe-sandbox.md).
 
-  File này là 1 trang HTML ĐỘC LẬP, tự chứa (inline mọi CSS/JS, chỉ tải 2 thư viện ngoài qua CDN — cùng
-  version app chính đang dùng: jsQR 1.4.0), KHÔNG chứa business logic, KHÔNG gọi Apps Script API, KHÔNG
-  đụng Google Sheets — chỉ làm đúng 1 việc: mở camera, giải mã QR, gửi kết quả về app chính qua
-  `window.opener.postMessage(...)` rồi tự đóng. App chính mở file này bằng `window.open(...)` (tab thật,
-  KHÔNG phải iframe) từ views/qr-modals.html::openExternalQrScanner() — vì là tab/cửa sổ top-level thật với
-  origin HTTPS thật (không phải sandbox), trình duyệt cấp quyền camera bình thường ở đó.
-
+  File này là 1 trang HTML ĐỘC LẬP, tự chứa (inline mọi CSS/JS, chỉ tải thư viện QuaggaJS qua CDN), 
+  KHÔNG chứa business logic, KHÔNG gọi Apps Script API, KHÔNG đụng Google Sheets — chỉ làm đúng 1 việc: 
+  mở camera, quét mã vạch 1D/QR, gửi kết quả về app chính qua `window.opener.postMessage(...)` rồi tự đóng. 
+  App chính mở file này bằng `window.open(...)` (tab thật, KHÔNG phải iframe) từ views/qr-modals.html.
+  
   CÁCH DEPLOY (chọn 1, đều miễn phí, không cần server riêng — chỉ cần HTTPS + origin thật):
   1. GitHub Pages: đẩy đúng file này lên 1 repo (nhánh nào cũng được) → Settings → Pages → bật cho nhánh đó
      → URL dạng https://<tai-khoan>.github.io/<repo>/scanner.html (hoặc đường dẫn tương ứng nơi đặt file).
@@ -44,50 +43,141 @@
   cụ thể (không phải '*') lấy từ query param ?origin=... do app chính truyền vào khi mở tab, để tránh gửi
   nhầm dữ liệu cho 1 trang lạ nếu tab bị điều hướng.
 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; min-height: 100vh; background: #0b0d12; color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    display: flex; flex-direction: column; align-items: center; padding: 16px;
-  }
-  h1 { font-size: 16px; font-weight: 700; margin: 8px 0 12px; text-align: center; }
-  .frame {
-    position: relative; width: 100%; max-width: 480px; aspect-ratio: 1 / 1;
-    background: #000; border-radius: 12px; overflow: hidden;
-  }
-  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  .box {
-    position: absolute; inset: 12%; border: 3px solid #4ade80; border-radius: 12px;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,.35); z-index: 1;
-  }
-  .hint { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; z-index: 1; font-size: 13px; color: #ddd; }
-  .msg {
-    max-width: 480px; width: 100%; margin-top: 14px; padding: 12px 14px; border-radius: 10px;
-    font-size: 14px; line-height: 1.4; display: none;
-  }
-  .msg.show { display: block; }
-  .msg.err { background: #3a1414; color: #ffb4b4; border: 1px solid #7a2c2c; }
-  .msg.ok { background: #123a1c; color: #b7f0c4; border: 1px solid #2c7a44; }
-  .manual { max-width: 480px; width: 100%; margin-top: 16px; }
-  .manual input {
-    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #333;
-    background: #171a21; color: #fff; font-size: 14px;
-  }
-  .manual button, .close-btn {
-    width: 100%; margin-top: 8px; padding: 10px 12px; border-radius: 8px; border: none;
-    background: #2563eb; color: #fff; font-size: 14px; font-weight: 600;
-  }
-  .close-btn { background: #333; margin-top: 16px; }
-</style>
+  <!-- Tải thư viện QuaggaJS chuyên quét mã vạch 1D qua CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0b0d12;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+
+    h1 {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 8px 0 12px;
+      text-align: center;
+    }
+
+    .frame {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      aspect-ratio: 4 / 3;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    /* Quagga tự chèn video vào trong khung này */
+    .frame video,
+    .frame canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .box {
+      position: absolute;
+      inset: 20% 10%;
+      border: 3px solid #4ade80;
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, .35);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .hint {
+      position: absolute;
+      bottom: 10px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      z-index: 1;
+      font-size: 13px;
+      color: #ddd;
+    }
+
+    .msg {
+      max-width: 480px;
+      width: 100%;
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.4;
+      display: none;
+    }
+
+    .msg.show {
+      display: block;
+    }
+
+    .msg.err {
+      background: #3a1414;
+      color: #ffb4b4;
+      border: 1px solid #7a2c2c;
+    }
+
+    .msg.ok {
+      background: #123a1c;
+      color: #b7f0c4;
+      border: 1px solid #2c7a44;
+    }
+
+    .manual {
+      max-width: 480px;
+      width: 100%;
+      margin-top: 16px;
+    }
+
+    .manual input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #171a21;
+      color: #fff;
+      font-size: 14px;
+    }
+
+    .manual button,
+    .close-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: none;
+      background: #2563eb;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .close-btn {
+      background: #333;
+      margin-top: 16px;
+    }
+  </style>
 </head>
+
 <body>
-  <h1>📷 Quét mã QR vật tư</h1>
-  <div class="frame">
-    <video id="video" playsinline muted></video>
+  <h1>📷 Quét mã vạch vật tư</h1>
+  <div class="frame" id="interactive">
     <div class="box"></div>
-    <div class="hint">Đưa mã QR vào khung để quét</div>
+    <div class="hint">Đưa mã vạch ngang vào khung</div>
   </div>
   <div id="msg" class="msg"></div>
   <div class="manual">
@@ -96,100 +186,88 @@
   </div>
   <button type="button" class="close-btn" onclick="window.close()">Đóng tab này</button>
 
-<script>
-  // targetOrigin lấy từ query param do app chính truyền vào khi window.open(...) — KHÔNG dùng '*', để
-  // postMessage chỉ gửi được về đúng app đã mở tab này (xem ghi chú bảo mật ở đầu file).
-  var params = new URLSearchParams(window.location.search);
-  var targetOrigin = params.get('origin');
-  var rafId = null;
-  var stream = null;
-  var sent = false;
+  <script>
+    var params = new URLSearchParams(window.location.search);
+    var targetOrigin = params.get('origin');
+    var sent = false;
 
-  function showMsg(text, type) {
-    var el = document.getElementById('msg');
-    el.textContent = text;
-    el.className = 'msg show ' + type;
-  }
-
-  function sendResult(code) {
-    if (sent) return;
-    sent = true;
-    if (!targetOrigin) {
-      showMsg('Thiếu tham số origin — trang này phải được mở từ nút "Mở trang quét camera" trong app, không mở trực tiếp.', 'err');
-      sent = false;
-      return;
+    function showMsg(text, type) {
+      var el = document.getElementById('msg');
+      el.textContent = text;
+      el.className = 'msg show ' + type;
     }
-    if (window.opener) {
-      window.opener.postMessage({ type: 'qr-scanned', code: code }, targetOrigin);
-      showMsg('Đã gửi mã "' + code + '" về ứng dụng. Có thể đóng tab này.', 'ok');
-      cleanup();
-      setTimeout(function () { window.close(); }, 900);
-    } else {
-      showMsg('Không tìm thấy tab đã mở trang này (window.opener trống) — mở lại từ nút trong app.', 'err');
-      sent = false;
-    }
-  }
 
-  function submitManual() {
-    var v = document.getElementById('manualInput').value.trim();
-    if (!v) return;
-    sendResult(v);
-  }
-
-  function cleanup() {
-    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
-  }
-
-  function scanLoop() {
-    if (!stream || sent) return;
-    var video = document.getElementById('video');
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      var canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      var code = window.jsQR ? jsQR(imgData.data, imgData.width, imgData.height) : null;
-      if (code && code.data) {
-        sendResult(code.data);
+    function sendResult(code) {
+      if (sent) return;
+      sent = true;
+      if (!targetOrigin) {
+        showMsg('Thiếu tham số origin — trang này phải được mở từ nút trong app.', 'err');
+        sent = false;
         return;
       }
-    }
-    rafId = requestAnimationFrame(scanLoop);
-  }
-
-  function start() {
-    if (!targetOrigin) {
-      showMsg('Thiếu tham số origin trên URL — không mở trực tiếp file này, hãy mở từ nút "Mở trang quét camera" trong app.', 'err');
-    }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showMsg('Trình duyệt này không hỗ trợ camera. Dùng ô nhập tay bên dưới.', 'err');
-      return;
-    }
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (s) {
-      stream = s;
-      var video = document.getElementById('video');
-      video.srcObject = s;
-      video.play();
-      scanLoop();
-    }).catch(function (err) {
-      var name = err && err.name;
-      var reason;
-      if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-        reason = 'Không tìm thấy camera trên thiết bị này.';
-      } else if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        reason = 'Trình duyệt đang chặn quyền camera cho trang này. Kiểm tra biểu tượng khoá/camera trên thanh địa chỉ để cấp lại quyền, hoặc dùng ô nhập tay bên dưới.';
+      if (window.opener) {
+        window.opener.postMessage({ type: 'qr-scanned', code: code }, targetOrigin);
+        showMsg('Đã gửi mã "' + code + '" về ứng dụng. Có thể đóng tab này.', 'ok');
+        Quagga.stop();
+        setTimeout(function () { window.close(); }, 900);
       } else {
-        reason = (err && err.message) ? err.message : String(err);
+        showMsg('Không tìm thấy tab đã mở trang này (window.opener trống).', 'err');
+        sent = false;
       }
-      showMsg('Không mở được camera: ' + reason, 'err');
-    });
-  }
+    }
 
-  window.addEventListener('beforeunload', cleanup);
-  start();
-</script>
+    function submitManual() {
+      var v = document.getElementById('manualInput').value.trim();
+      if (!v) return;
+      sendResult(v);
+    }
+
+    function startScanner() {
+      if (!targetOrigin) {
+        showMsg('Thiếu tham số origin trên URL.', 'err');
+      }
+
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: document.querySelector('#interactive'),
+          constraints: {
+            facingMode: "environment" // Ưu tiên camera sau
+          },
+        },
+        decoder: {
+          readers: [
+            "ean_reader",     // Hỗ trợ mã vạch EAN-13 như ảnh của bạn
+            "ean_8_reader",
+            "code_128_reader",
+            "code_39_reader",
+            "upc_reader",
+            "upc_e_reader"
+          ]
+        },
+      }, function (err) {
+        if (err) {
+          showMsg('Không mở được camera: ' + err, 'err');
+          return;
+        }
+        Quagga.start();
+      });
+
+      Quagga.onDetected(function (result) {
+        var code = result.codeResult.code;
+        if (code && !sent) {
+          sendResult(code);
+        }
+      });
+    }
+
+    window.addEventListener('beforeunload', function () {
+      try { Quagga.stop(); } catch (e) { }
+    });
+
+    startScanner();
+  </script>
 </body>
+
 </html>
