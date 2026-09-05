@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Quét mã QR — Quản lý Vật tư</title>
+  <title>Quét mã vạch — Quản lý Vật tư</title>
   <!--
   docs/external-qr-scanner/scanner.html — TRANG QUÉT CAMERA HOST NGOÀI APPS SCRIPT.
 
@@ -16,9 +16,9 @@
   Script (đã kiểm chứng qua tài liệu cộng đồng, không phải giả định — xem
   tasks/backlog-20260822/DEV-19-fix-qr-camera-iframe-sandbox.md).
 
-  File này là 1 trang HTML ĐỘC LẬP, tự chứa (inline mọi CSS/JS, chỉ tải QuaggaJS và jsQR qua CDN),
+  File này là 1 trang HTML ĐỘC LẬP, tự chứa (inline mọi CSS/JS, chỉ tải QuaggaJS qua CDN),
   KHÔNG chứa business logic, KHÔNG gọi Apps Script API, KHÔNG đụng Google Sheets — chỉ làm đúng 1 việc:
-  mở camera, quét mã vạch 1D/QR, gửi kết quả về app chính qua `window.opener.postMessage(...)` rồi tự đóng.
+  mở camera, quét barcode 1D, gửi kết quả về app chính qua `window.opener.postMessage(...)` rồi tự đóng.
   App chính mở file này bằng `window.open(...)` (tab thật, KHÔNG phải iframe) từ views/qr-modals.html.
 
   CÁCH DEPLOY (chọn 1, đều miễn phí, không cần server riêng — chỉ cần HTTPS + origin thật):
@@ -36,17 +36,15 @@
   điền, không mở URL rỗng).
 
   BẢO MẬT — vì sao KHÔNG cần xác thực/token ở đây:
-  Nội dung QR chỉ là `ma_vt` thô (mã đầu mục vật tư, không phải dữ liệu nhạy cảm — xem index.html app
+  Nội dung barcode chỉ là `ma_vt` thô (mã đầu mục vật tư, không phải dữ liệu nhạy cảm — xem index.html app
   chính, biến đã gửi qua postMessage vẫn được app chính tra cứu lại qua server `traCuuVatTuTheoMa` trước
   khi tin, không tin trực tiếp). Trang này không lưu trữ gì, không có cookie/localStorage, không gọi
   network ngoài việc tải 2 thư viện CDN tĩnh — bề mặt tấn công tối thiểu. postMessage() dùng targetOrigin
   cụ thể (không phải '*') lấy từ query param ?origin=... do app chính truyền vào khi mở tab, để tránh gửi
   nhầm dữ liệu cho 1 trang lạ nếu tab bị điều hướng.
 -->
-  <!-- Quét barcode 1D và QR ngay trên trình duyệt, không gửi ảnh ra ngoài -->
+  <!-- Chỉ quét barcode 1D ngay trên trình duyệt, không gửi ảnh ra ngoài -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-  <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -192,8 +190,6 @@
     var params = new URLSearchParams(window.location.search);
     var targetOrigin = params.get('origin');
     var sent = false;
-    var qrScanRaf = null;
-    var zxingControls = null;
 
     function debugScanResult(code, decoder) {
       alert('Đã quét được mã vạch\n\nDecoder: ' + decoder + '\nMã: ' + code);
@@ -217,7 +213,7 @@
         debugScanResult(code, window._lastBarcodeDecoder || 'manual');
         window.opener.postMessage({ type: 'qr-scanned', code: code }, targetOrigin);
         showMsg('Đã gửi mã "' + code + '" về ứng dụng. Có thể đóng tab này.', 'ok');
-        stopScanner();
+        Quagga.stop();
         setTimeout(function () { window.close(); }, 900);
       } else {
         showMsg('Không tìm thấy tab đã mở trang này (window.opener trống).', 'err');
@@ -231,70 +227,6 @@
       sendResult(v);
     }
 
-    function stopScanner() {
-      if (qrScanRaf) {
-        cancelAnimationFrame(qrScanRaf);
-        qrScanRaf = null;
-      }
-      try { Quagga.stop(); } catch (e) { }
-      if (zxingControls) {
-        zxingControls.stop();
-        zxingControls = null;
-      }
-    }
-
-    function scanQrFrame() {
-      if (sent) return;
-      var video = document.querySelector('#interactive video');
-      if (video && video.readyState === video.HAVE_ENOUGH_DATA && window.jsQR) {
-        var canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        var context = canvas.getContext('2d', { willReadFrequently: true });
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        var result = jsQR(context.getImageData(0, 0, canvas.width, canvas.height).data,
-          canvas.width, canvas.height);
-        if (result && result.data) {
-          sendResult(result.data);
-          return;
-        }
-      }
-      qrScanRaf = requestAnimationFrame(scanQrFrame);
-    }
-
-    function startZxingScanner(video) {
-      if (!window.ZXing || !video) return;
-      var hints = new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.EAN_13,
-        ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.UPC_A,
-        ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.UPC_EAN_EXTENSION,
-        ZXing.BarcodeFormat.CODE_128,
-        ZXing.BarcodeFormat.CODE_39,
-        ZXing.BarcodeFormat.CODE_93,
-        ZXing.BarcodeFormat.ITF,
-        ZXing.BarcodeFormat.CODABAR,
-        ZXing.BarcodeFormat.RSS_14,
-        ZXing.BarcodeFormat.RSS_EXPANDED
-      ]);
-      var reader = new ZXing.BrowserMultiFormatReader(hints, 300);
-      try {
-        zxingControls = reader.decodeFromVideoElementContinuously(video, function (result, error) {
-          if (result && result.text && !sent) {
-            window._lastBarcodeDecoder = 'ZXing';
-            sendResult(result.text);
-          }
-          if (error && !(error instanceof ZXing.NotFoundException)) {
-            console.warn('ZXing decode error:', error);
-          }
-        });
-      } catch (error) {
-        console.warn('ZXing không khởi động được, tiếp tục dùng Quagga:', error);
-      }
-    }
-
     function startScanner() {
       if (!targetOrigin) {
         showMsg('Thiếu tham số origin trên URL.', 'err');
@@ -306,40 +238,17 @@
           type: "LiveStream",
           target: document.querySelector('#interactive'),
           constraints: {
-            facingMode: "environment", // Ưu tiên camera sau
-            width: { min: 640, ideal: 1280 },
-            height: { min: 480, ideal: 720 },
-            focusMode: "continuous"
+            facingMode: "environment" // Ưu tiên camera sau
           },
-          area: {
-            top: "15%",
-            right: "5%",
-            left: "5%",
-            bottom: "15%"
-          },
-          willReadFrequently: true,
         },
-        locate: true,
-        locator: {
-          patchSize: "large",
-          halfSample: false
-        },
-        frequency: 10,
         decoder: {
           readers: [
             "ean_reader",     // Hỗ trợ mã vạch EAN-13 như ảnh của bạn
-            "ean_13_reader",
             "ean_8_reader",
             "code_128_reader",
             "code_39_reader",
-            "code_93_reader",
-            "i2of5_reader",
-            "2of5_reader",
-            "codabar_reader",
             "upc_reader",
-            "upc_e_reader",
-            "rss_14_reader",
-            "rss_expanded_reader"
+            "upc_e_reader"
           ]
         },
       }, function (err) {
@@ -348,9 +257,6 @@
           return;
         }
         Quagga.start();
-        var video = document.querySelector('#interactive video');
-        scanQrFrame();
-        startZxingScanner(video);
       });
 
       Quagga.onDetected(function (result) {
@@ -363,7 +269,7 @@
     }
 
     window.addEventListener('beforeunload', function () {
-      stopScanner();
+      try { Quagga.stop(); } catch (e) { }
     });
 
     startScanner();
