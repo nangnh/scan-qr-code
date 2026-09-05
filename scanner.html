@@ -195,6 +195,10 @@
     var qrScanRaf = null;
     var zxingControls = null;
 
+    function debugScanResult(code, decoder) {
+      alert('Đã quét được mã vạch\n\nDecoder: ' + decoder + '\nMã: ' + code);
+    }
+
     function showMsg(text, type) {
       var el = document.getElementById('msg');
       el.textContent = text;
@@ -210,6 +214,7 @@
         return;
       }
       if (window.opener) {
+        debugScanResult(code, window._lastBarcodeDecoder || 'manual');
         window.opener.postMessage({ type: 'qr-scanned', code: code }, targetOrigin);
         showMsg('Đã gửi mã "' + code + '" về ứng dụng. Có thể đóng tab này.', 'ok');
         stopScanner();
@@ -277,7 +282,10 @@
       var reader = new ZXing.BrowserMultiFormatReader(hints, 300);
       try {
         zxingControls = reader.decodeFromVideoElementContinuously(video, function (result, error) {
-          if (result && result.text && !sent) sendResult(result.text);
+          if (result && result.text && !sent) {
+            window._lastBarcodeDecoder = 'ZXing';
+            sendResult(result.text);
+          }
           if (error && !(error instanceof ZXing.NotFoundException)) {
             console.warn('ZXing decode error:', error);
           }
@@ -348,6 +356,7 @@
       Quagga.onDetected(function (result) {
         var code = result.codeResult.code;
         if (code && !sent) {
+          window._lastBarcodeDecoder = 'Quagga';
           sendResult(code);
         }
       });
